@@ -1,0 +1,10 @@
+{
+    "summary": "This is the updated summary text.",
+    "data1": "Updated value for data point 1.",
+    "data2": "New information for data point 2.",
+    "desc1": "Description for Metric 1.",
+    "val1": "Value for Metric 1.",
+    "desc2": "Description for Metric 2.",
+    "val2": "Value for Metric 2.",
+    "conclusion": "The conclusion has been revised to reflect recent changes."
+}
