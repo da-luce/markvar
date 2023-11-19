@@ -43,7 +43,7 @@ func main() {
     }
 
     // Process Markdown content
-    updatedContent, unusedMappings, err := processMarkdown(string(mdContent), mappings)
+    updatedContent, unusedMappings, unmatchedTags, err := processMarkdown(string(mdContent), mappings)
     if err != nil {
         fmt.Println("Error processing Markdown:", err)
         return
@@ -54,15 +54,22 @@ func main() {
         fmt.Println("Warning: Unused mappings in JSON file:", unusedMappings)
     }
 
+    // Warn about unmatched tags
+    if len(unmatchedTags) > 0 {
+        fmt.Println("Warning: The following tags in the Markdown file have no corresponding mapping in the JSON file:", unmatchedTags)
+    }
+
     // Write updated Markdown back to the original file
     if err := ioutil.WriteFile(*markdownFilePtr, []byte(updatedContent), 0644); err != nil {
         fmt.Println("Error writing updated Markdown file:", err)
     }
 }
 
-func processMarkdown(content string, mappings map[string]string) (string, []string, error) {
-    re := regexp.MustCompile(`<!--id:([a-zA-Z0-9]+)-->.*?<!---->`)
+func processMarkdown(content string, mappings map[string]string) (string, []string, []string, error) {
+    // Regular expression to match multi-line tags
+    re := regexp.MustCompile(`<!--id:([a-zA-Z0-9]+)-->([\s\S]*?)<!---->`)
     usedMappings := make(map[string]bool)
+    unmatchedTags := make([]string, 0)
 
     updatedContent := re.ReplaceAllStringFunc(content, func(match string) string {
         id := re.FindStringSubmatch(match)[1]
@@ -70,8 +77,10 @@ func processMarkdown(content string, mappings map[string]string) (string, []stri
         if exists {
             usedMappings[id] = true
             return fmt.Sprintf("<!--id:%s-->%s<!---->", id, val)
+        } else {
+            unmatchedTags = append(unmatchedTags, id)
+            return match
         }
-        return match
     })
 
     // Find unused mappings
@@ -82,5 +91,5 @@ func processMarkdown(content string, mappings map[string]string) (string, []stri
         }
     }
 
-    return updatedContent, unusedMappings, nil
+    return updatedContent, unusedMappings, unmatchedTags, nil
 }
