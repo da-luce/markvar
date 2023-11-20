@@ -10,3 +10,5 @@
 ### Above combination will ignore all files without extension ###
 
 test
+.DS_Store
+markvar.hs
