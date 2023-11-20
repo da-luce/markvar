@@ -71,7 +71,6 @@ func writeMappings(mappings map[string]string) error {
 func processContent(content string, mappings map[string]string) (string, []string, []string) {
     usedMappings := make(map[string]bool)
     unmatchedTags := make([]string, 0)
-    _ = unmatchedTags
 
     updatedContent := content
     for key, val := range mappings {
@@ -83,28 +82,27 @@ func processContent(content string, mappings map[string]string) (string, []strin
     }
 
     // Identifying unused and unmatched mappings
-    var unusedMappings, unmatchedMappings []string
+    var unusedMappings []string
     for key := range mappings {
         if !usedMappings[key] {
             unusedMappings = append(unusedMappings, key)
         }
     }
+
     for _, placeholder := range strings.Split(updatedContent, "{{var:") {
         if strings.Contains(placeholder, "}}") {
             varName := strings.Split(placeholder, "}}")[0]
             if _, exists := mappings[varName]; !exists {
-                unmatchedMappings = append(unmatchedMappings, fmt.Sprintf("{{var:%s}}", varName))
+                unmatchedTag := fmt.Sprintf("{{var:%s}}", varName)
+                unmatchedTags = append(unmatchedTags, unmatchedTag)
+                updatedContent = strings.ReplaceAll(updatedContent, unmatchedTag, "")
             }
         }
     }
 
-    // Removing unmatched placeholders
-    for _, unmatched := range unmatchedMappings {
-        updatedContent = strings.ReplaceAll(updatedContent, unmatched, "")
-    }
-
-    return updatedContent, unusedMappings, unmatchedMappings
+    return updatedContent, unusedMappings, unmatchedTags
 }
+
 
 func handleUpdate(mdFile string) {
     if mdFile == "" {
