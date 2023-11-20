@@ -2,100 +2,194 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
-func findMarkvarFile() (string, error) {
-    cwd, err := os.Getwd()
-    if err != nil {
-        return "", err
+func main() {
+    updateCmd := flag.NewFlagSet("update", flag.ExitOnError)
+    listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+    addCmd := flag.NewFlagSet("add", flag.ExitOnError)
+    removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
+
+    updateMdFile := updateCmd.String("file", "", "Path to the Markdown file to update")
+    addVarName := addCmd.String("name", "", "Variable name to add")
+    addVarContent := addCmd.String("content", "", "Content of the variable")
+    removeVarName := removeCmd.String("name", "", "Variable name to remove")
+
+    if len(os.Args) < 2 {
+        fmt.Println("expected 'update', 'list', 'add', or 'remove' subcommands")
+        os.Exit(1)
     }
 
-    filePath := filepath.Join(cwd, ".markvar")
-    if _, err := os.Stat(filePath); os.IsNotExist(err) {
-        return "", fmt.Errorf(".markvar file not found in the current directory")
+    switch os.Args[1] {
+    case "update":
+        updateCmd.Parse(os.Args[2:])
+        handleUpdate(*updateMdFile)
+    case "list":
+        listCmd.Parse(os.Args[2:])
+        handleList()
+    case "add":
+        addCmd.Parse(os.Args[2:])
+        handleAdd(*addVarName, *addVarContent)
+    case "remove":
+        removeCmd.Parse(os.Args[2:])
+        handleRemove(*removeVarName)
+    default:
+        fmt.Println("expected 'update', 'list', 'add', or 'remove' subcommands")
+        os.Exit(1)
     }
-
-    return filePath, nil
 }
 
-func processContent(content string, mappings map[string]string) (string, []string, []string, map[string]string) {
-    usedMappings := make(map[string]bool)
-    unmatchedPlaceholders := make([]string, 0)
-    updatedContent := content
+func readMappings() (map[string]string, error) {
+    var mappings map[string]string
 
-    for key := range mappings {
+    data, err := ioutil.ReadFile(".markvar")
+    if err != nil {
+        return nil, err
+    }
+
+    if err := json.Unmarshal(data, &mappings); err != nil {
+        return nil, err
+    }
+
+    return mappings, nil
+}
+
+func writeMappings(mappings map[string]string) error {
+    data, err := json.MarshalIndent(mappings, "", "  ")
+    if err != nil {
+        return err
+    }
+
+    return ioutil.WriteFile(".markvar", data, 0644)
+}
+
+func processContent(content string, mappings map[string]string) (string, []string, []string) {
+    usedMappings := make(map[string]bool)
+    unmatchedTags := make([]string, 0)
+    _ = unmatchedTags
+
+    updatedContent := content
+    for key, val := range mappings {
         placeholder := fmt.Sprintf("{{var:%s}}", key)
         if strings.Contains(updatedContent, placeholder) {
-            updatedContent = strings.ReplaceAll(updatedContent, placeholder, mappings[key])
+            updatedContent = strings.ReplaceAll(updatedContent, placeholder, val)
             usedMappings[key] = true
-        } else {
-            unmatchedPlaceholders = append(unmatchedPlaceholders, placeholder)
         }
     }
 
-    // Removing unused mappings
+    // Identifying unused and unmatched mappings
+    var unusedMappings, unmatchedMappings []string
     for key := range mappings {
         if !usedMappings[key] {
-            delete(mappings, key)
+            unusedMappings = append(unusedMappings, key)
+        }
+    }
+    for _, placeholder := range strings.Split(updatedContent, "{{var:") {
+        if strings.Contains(placeholder, "}}") {
+            varName := strings.Split(placeholder, "}}")[0]
+            if _, exists := mappings[varName]; !exists {
+                unmatchedMappings = append(unmatchedMappings, fmt.Sprintf("{{var:%s}}", varName))
+            }
         }
     }
 
-    return updatedContent, unmatchedPlaceholders, make([]string, 0), mappings
+    // Removing unmatched placeholders
+    for _, unmatched := range unmatchedMappings {
+        updatedContent = strings.ReplaceAll(updatedContent, unmatched, "")
+    }
+
+    return updatedContent, unusedMappings, unmatchedMappings
 }
 
-func main() {
-    markvarFilePath, err := findMarkvarFile()
+func handleUpdate(mdFile string) {
+    if mdFile == "" {
+        fmt.Println("Please specify the Markdown file path.")
+        return
+    }
+
+    mdContent, err := ioutil.ReadFile(mdFile)
     if err != nil {
-        fmt.Println(err)
+        fmt.Printf("Error reading Markdown file: %s\n", err)
         return
     }
 
-    jsonContent, err := ioutil.ReadFile(markvarFilePath)
+    mappings, err := readMappings()
     if err != nil {
-        fmt.Println("Error reading .markvar file:", err)
+        fmt.Printf("Error reading mappings: %s\n", err)
         return
     }
 
-    var mappings map[string]string
-    if err := json.Unmarshal(jsonContent, &mappings); err != nil {
-        fmt.Println("Error parsing JSON:", err)
+    updatedContent, unusedMappings, unmatchedTags := processContent(string(mdContent), mappings)
+
+    if len(unusedMappings) > 0 {
+        fmt.Println("Warning: Unused mappings in JSON file:", unusedMappings)
+    }
+
+    if len(unmatchedTags) > 0 {
+        fmt.Println("Warning: The following placeholders have no corresponding mapping and will be removed:", unmatchedTags)
+    }
+
+    outputFile := mdFile + ".updated"
+    if err := ioutil.WriteFile(outputFile, []byte(updatedContent), 0644); err != nil {
+        fmt.Printf("Error writing updated Markdown file: %s\n", err)
         return
     }
 
-    mdFilePath := "example.md" // Replace with the actual markdown file path
-    mdContent, err := ioutil.ReadFile(mdFilePath)
+    fmt.Printf("File processed successfully. Updated file: %s\n", outputFile)
+}
+
+
+func handleRemove(varName string) {
+    if varName == "" {
+        fmt.Println("Please specify the variable name to remove.")
+        return
+    }
+
+    mappings, err := readMappings()
     if err != nil {
-        fmt.Println("Error reading Markdown file:", err)
+        fmt.Printf("Error reading mappings: %s\n", err)
         return
     }
 
-    updatedContent, unmatchedPlaceholders, _, updatedMappings := processContent(string(mdContent), mappings)
-
-    if len(unmatchedPlaceholders) > 0 {
-        fmt.Println("Warning: The following placeholders have no corresponding mapping and will be removed:", unmatchedPlaceholders)
+    if _, exists := mappings[varName]; exists {
+        delete(mappings, varName)
+        writeMappings(mappings)
+    } else {
+        fmt.Printf("Variable '%s' does not exist.\n", varName)
     }
+}
 
-    // Write updated Markdown content
-    if err := ioutil.WriteFile(mdFilePath+".updated", []byte(updatedContent), 0644); err != nil {
-        fmt.Println("Error writing updated Markdown file:", err)
+
+func handleAdd(varName string, varContent string) {
+    if varName == "" || varContent == "" {
+        fmt.Println("Please specify both the variable name and content.")
         return
     }
 
-    // Update and write the .markvar file with removed unused mappings
-    updatedJSON, err := json.MarshalIndent(updatedMappings, "", "    ")
+    mappings, err := readMappings()
     if err != nil {
-        fmt.Println("Error marshalling updated JSON:", err)
-        return
-    }
-    if err := ioutil.WriteFile(markvarFilePath, updatedJSON, 0644); err != nil {
-        fmt.Println("Error writing updated .markvar file:", err)
+        fmt.Printf("Error reading mappings: %s\n", err)
         return
     }
 
-    fmt.Println("Updated Markdown file and .markvar file successfully.")
+    mappings[varName] = varContent
+    writeMappings(mappings)
+}
+
+
+func handleList() {
+    mappings, err := readMappings()
+    if err != nil {
+        fmt.Printf("Error reading mappings: %s\n", err)
+        return
+    }
+
+    for key, value := range mappings {
+        fmt.Printf("%s: %s\n", key, value)
+    }
 }
