@@ -12,3 +12,7 @@
 test
 .DS_Store
 markvar.hs
+
+build/
+dist/
+markvar.egg-info/

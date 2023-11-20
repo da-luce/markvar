@@ -4,7 +4,7 @@ setup(
     name="markvar",
     version="0.1",
     packages=find_packages(),
-    description="A utility to handle variables for Markvar",
+    description="Python package to be used in conjunction with the Markvar tool",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/da-luce/markvar",
