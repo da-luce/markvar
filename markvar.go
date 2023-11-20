@@ -2,94 +2,100 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
-	"regexp"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
+func findMarkvarFile() (string, error) {
+    cwd, err := os.Getwd()
+    if err != nil {
+        return "", err
+    }
+
+    filePath := filepath.Join(cwd, ".markvar")
+    if _, err := os.Stat(filePath); os.IsNotExist(err) {
+        return "", fmt.Errorf(".markvar file not found in the current directory")
+    }
+
+    return filePath, nil
+}
+
+func processContent(content string, mappings map[string]string) (string, []string, []string, map[string]string) {
+    usedMappings := make(map[string]bool)
+    unmatchedPlaceholders := make([]string, 0)
+    updatedContent := content
+
+    for key := range mappings {
+        placeholder := fmt.Sprintf("{{var:%s}}", key)
+        if strings.Contains(updatedContent, placeholder) {
+            updatedContent = strings.ReplaceAll(updatedContent, placeholder, mappings[key])
+            usedMappings[key] = true
+        } else {
+            unmatchedPlaceholders = append(unmatchedPlaceholders, placeholder)
+        }
+    }
+
+    // Removing unused mappings
+    for key := range mappings {
+        if !usedMappings[key] {
+            delete(mappings, key)
+        }
+    }
+
+    return updatedContent, unmatchedPlaceholders, make([]string, 0), mappings
+}
+
 func main() {
-    // Define command line flags
-    markdownFilePtr := flag.String("md", "", "Path to the Markdown file")
-    jsonFilePtr := flag.String("json", "", "Path to the JSON file")
-    flag.Parse()
-
-    // Check if both flags are provided
-    if *markdownFilePtr == "" || *jsonFilePtr == "" {
-        fmt.Println("Please specify both the Markdown file and the JSON file.")
-        flag.Usage()
-        return
-    }
-
-    // Read Markdown file
-    mdContent, err := ioutil.ReadFile(*markdownFilePtr)
+    markvarFilePath, err := findMarkvarFile()
     if err != nil {
-        fmt.Println("Error reading Markdown file:", err)
+        fmt.Println(err)
         return
     }
 
-    // Read JSON file
-    jsonContent, err := ioutil.ReadFile(*jsonFilePtr)
+    jsonContent, err := ioutil.ReadFile(markvarFilePath)
     if err != nil {
-        fmt.Println("Error reading JSON file:", err)
+        fmt.Println("Error reading .markvar file:", err)
         return
     }
 
-    // Parse JSON into a map
     var mappings map[string]string
     if err := json.Unmarshal(jsonContent, &mappings); err != nil {
         fmt.Println("Error parsing JSON:", err)
         return
     }
 
-    // Process Markdown content
-    updatedContent, unusedMappings, unmatchedTags, err := processMarkdown(string(mdContent), mappings)
+    mdFilePath := "example.md" // Replace with the actual markdown file path
+    mdContent, err := ioutil.ReadFile(mdFilePath)
     if err != nil {
-        fmt.Println("Error processing Markdown:", err)
+        fmt.Println("Error reading Markdown file:", err)
         return
     }
 
-    // Warn about unused mappings
-    if len(unusedMappings) > 0 {
-        fmt.Println("Warning: Unused mappings in JSON file:", unusedMappings)
+    updatedContent, unmatchedPlaceholders, _, updatedMappings := processContent(string(mdContent), mappings)
+
+    if len(unmatchedPlaceholders) > 0 {
+        fmt.Println("Warning: The following placeholders have no corresponding mapping and will be removed:", unmatchedPlaceholders)
     }
 
-    // Warn about unmatched tags
-    if len(unmatchedTags) > 0 {
-        fmt.Println("Warning: The following tags in the Markdown file have no corresponding mapping in the JSON file:", unmatchedTags)
-    }
-
-    // Write updated Markdown back to the original file
-    if err := ioutil.WriteFile(*markdownFilePtr, []byte(updatedContent), 0644); err != nil {
+    // Write updated Markdown content
+    if err := ioutil.WriteFile(mdFilePath+".updated", []byte(updatedContent), 0644); err != nil {
         fmt.Println("Error writing updated Markdown file:", err)
-    }
-}
-
-func processMarkdown(content string, mappings map[string]string) (string, []string, []string, error) {
-    // Regular expression to match multi-line tags
-    re := regexp.MustCompile(`<!--id:([a-zA-Z0-9]+)-->([\s\S]*?)<!---->`)
-    usedMappings := make(map[string]bool)
-    unmatchedTags := make([]string, 0)
-
-    updatedContent := re.ReplaceAllStringFunc(content, func(match string) string {
-        id := re.FindStringSubmatch(match)[1]
-        val, exists := mappings[id]
-        if exists {
-            usedMappings[id] = true
-            return fmt.Sprintf("<!--id:%s-->%s<!---->", id, val)
-        } else {
-            unmatchedTags = append(unmatchedTags, id)
-            return match
-        }
-    })
-
-    // Find unused mappings
-    var unusedMappings []string
-    for key := range mappings {
-        if !usedMappings[key] {
-            unusedMappings = append(unusedMappings, key)
-        }
+        return
     }
 
-    return updatedContent, unusedMappings, unmatchedTags, nil
+    // Update and write the .markvar file with removed unused mappings
+    updatedJSON, err := json.MarshalIndent(updatedMappings, "", "    ")
+    if err != nil {
+        fmt.Println("Error marshalling updated JSON:", err)
+        return
+    }
+    if err := ioutil.WriteFile(markvarFilePath, updatedJSON, 0644); err != nil {
+        fmt.Println("Error writing updated .markvar file:", err)
+        return
+    }
+
+    fmt.Println("Updated Markdown file and .markvar file successfully.")
 }
