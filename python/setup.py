@@ -8,7 +8,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/da-luce/markvar",
-    author="Your Name",
+    author="Dalton Luce",
     author_email="your.email@example.com",
     license="MIT",
     install_requires=[
